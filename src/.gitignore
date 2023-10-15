@@ -1,0 +1,10 @@
+.vscode/*
+logs/*
+*.pyc
+log_glue/*
+log_pbt/*
+runs/*
+wandb/*
+*.log
+*.lprof
+*.pth
