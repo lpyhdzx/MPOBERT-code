@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Truncate a matrix with mpo in a truncate number.
-Date: 2020.11.16
-@author: Gaozefeng
+Basic MPO class.
+Date: 2023.12.4
+@author: LiuPeiyu,ChenyYushuo,Gaozefeng
 """
 import numpy as np
 import random
 import torch.nn as nn
 import torch
-# from .tensordot import ListTensorDot
 
 
 class MPO:
@@ -28,7 +27,7 @@ class MPO:
         if fix_rank:
             self.mpo_truncate_ranks = fix_rank
         else:
-            self.mpo_truncate_ranks = self.compute_rank(truncate_num=self.truncate_num) # 以前是没有用到self，那么无法通过外界设置而更改
+            self.mpo_truncate_ranks = self.compute_rank(truncate_num=self.truncate_num)
 
     def compute_rank_position(self, s, truncate_num=None):
 
@@ -69,27 +68,6 @@ class MPO:
         """
         tensor_set = []
         res = inp_matrix
-        # #################################################################################
-        # # make M(m1,m2,...,mk, n1,n2,...,nk) to M(m1,n1,m2,n2,...,mk,nk)
-        # print(res.shape, self.mpo_input_shape, self.mpo_output_shape)
-        # res = res.reshape(tuple(self.mpo_input_shape[:]) + tuple(self.mpo_output_shape[:]))
-        # res = np.transpose(res, self.index_permute)
-        # #################################################################################
-        # for i in range(self.num_dim - 1):
-        #     # Do the SVD operator
-        #     print(i, res.shape, self.mpo_ranks[i] * self.mpo_input_shape[i] * self.mpo_output_shape[i], self.mpo_ranks[i], self.mpo_input_shape[i], self.mpo_output_shape[i])
-        #     res = res.reshape([self.mpo_ranks[i] * self.mpo_input_shape[i] * self.mpo_output_shape[i], -1])
-        #     u, lamda, v = np.linalg.svd(res, full_matrices=False)
-        #     print(i, u.shape, lamda.shape, v.shape)
-        #     # The first tensor should be T1(r_i+1, m_i, n_i, r_i)
-        #     u = u.reshape([self.mpo_ranks[i], self.mpo_input_shape[i], self.mpo_output_shape[i], self.mpo_ranks[i+1]])
-        #     tensor_set.append(u)
-        #     res = np.dot(np.diag(lamda), v)
-        # res = res.reshape([self.mpo_ranks[self.num_dim-1], self.mpo_input_shape[self.num_dim-1],
-        #                    self.mpo_output_shape[self.num_dim-1], self.mpo_ranks[self.num_dim]])
-        # tensor_set.append(res)
-        # # print([torch.tensor(tensor) for tensor in tensor_set])
-        # return tensor_set
 
         res = res.view(tuple(self.mpo_input_shape) + tuple(self.mpo_output_shape)).permute(self.index_permute).contiguous()
         for i in range(self.num_dim - 1):
@@ -106,17 +84,6 @@ class MPO:
         return tensor_set
 
     def left_canonical(self,tensor_set):
-        # left_canonical_tensor = [0 for i in range(self.num_dim + 1)]
-        # mat = tensor_set[0]
-        # mat = mat.reshape(-1, mat.shape[3])
-        # u, lamda, v = np.linalg.svd(mat, full_matrices=False)
-        # left_canonical_tensor[1] = np.dot(np.diag(lamda), v)
-        # for i in range(1,self.num_dim-1):
-        #     mat = np.tensordot(left_canonical_tensor[i], tensor_set[i],[1,0])
-        #     mat = mat.reshape(-1, mat.shape[-1])
-        #     u,lamda,v = np.linalg.svd(mat, full_matrices=False)
-        #     left_canonical_tensor[i+1] = np.dot(np.diag(lamda), v)
-        # return left_canonical_tensor
         left_canonical_tensor = [0] * (self.num_dim + 1)
         mat = tensor_set[0]
         mat = mat.view(-1, mat.size(-1))
@@ -135,19 +102,7 @@ class MPO:
         :param left_tensor: the tensor_set output from function: left_canonical
         :return: the right_tensor_canonical format for calculate the mpo decomposition
         """
-        # right_canonical_tensor = [0 for i in range(self.num_dim + 1)]
-        # # print(tensor_set.shape)
-        # mat = tensor_set[self.num_dim - 1]
-        # mat = mat.reshape(mat.shape[0], -1)
-        # u, lamda, v = np.linalg.svd(mat, full_matrices=False)
-        # right_canonical_tensor[self.num_dim - 1] = np.dot(u, np.diag(lamda))
 
-        # for i in range(self.num_dim - 2, 0, -1):
-        #     mat = np.tensordot(tensor_set[i], right_canonical_tensor[i + 1], [3, 0])
-        #     mat = mat.reshape(mat.shape[0], -1)
-        #     u, lamda, v = np.linalg.svd(mat, full_matrices=False)
-        #     right_canonical_tensor[i] = np.dot(u, np.diag(lamda))
-        # return right_canonical_tensor
         right_canonical_tensor = [0] * (self.num_dim + 1)
         mat = tensor_set[self.num_dim - 1]
         mat = mat.view(mat.size(0), -1)
@@ -166,34 +121,14 @@ class MPO:
         :param lamda: lamda parameter from left canonical
         :return:
         """
-        # norm_para = np.sum(lamda ** 2) ** (0.5)
-        # lamda_n = lamda / norm_para
-        # lamda_12 = lamda ** (-0.5)
-        # return lamda_n, np.diag(lamda_12)
+        
         norm_para = (lamda ** 2).sum() ** (0.5)
         lamda_n = lamda / norm_para
         lamda_12 = lamda ** (-0.5)
         return lamda_n, lamda_12
 
     def gauge_aux_p_q(self, left_canonical_tensor, right_canonical_tensor):
-        # p = [0 for i in range(self.num_dim + 1)]
-        # q = [0 for i in range(self.num_dim + 1)]
-        # lamda_set = [0 for i in range(self.num_dim + 1)]
-        # lamda_set_value = [0 for i in range(self.num_dim + 1)]
-        # lamda_set[0] = np.ones([1,1])
-        # lamda_set[-1] = np.ones([1,1])
-        # for i in range(1, self.num_dim):
-        #     mat = np.dot(left_canonical_tensor[i],right_canonical_tensor[i])
-        #     # mat = right_canonical_tensor[i]
-        #     u, lamda, v = np.linalg.svd(mat)
-        #     lamda_n, lamda_l2 = self.expectrum_normalization(lamda)
-        #     lamda_set[i] = lamda_n
-        #     lamda_set_value[i] = lamda
-        #     p[i] = np.dot(right_canonical_tensor[i], v.T)
-        #     p[i] = np.dot(p[i],lamda_l2)
-        #     q[i] = np.dot(lamda_l2,u.T)
-        #     q[i] = np.dot(q[i], left_canonical_tensor[i])
-        # return p, q, lamda_set, lamda_set_value
+
         p = [0] * (self.num_dim + 1)
         q = [0] * (self.num_dim + 1)
         lamda_set = [0] * (self.num_dim + 1)
@@ -214,12 +149,7 @@ class MPO:
         return p, q, lamda_set, lamda_set_value
 
     def mpo_canonical(self, tensor_set, p, q):
-        # tensor_set[0] = np.tensordot(tensor_set[0], p[1], [3,0])
-        # tensor_set[-1] = np.tensordot(q[self.num_dim-1], tensor_set[-1], [1,0])
-        # for i in range(1, self.num_dim-1):
-        #     tensor_set[i] = np.tensordot(q[i],tensor_set[i],[1,0])
-        #     tensor_set[i] = np.tensordot(tensor_set[i],p[i+1], [3,0])
-        # return tensor_set
+        
         tensor_set[0] = torch.tensordot(tensor_set[0], p[1], [[-1], [0]])
         tensor_set[-1] = torch.tensordot(q[self.num_dim - 1], tensor_set[-1], [[1], [0]])
         for i in range(1, self.num_dim-1):
@@ -250,9 +180,6 @@ class MPO:
             r_r = mpo_trunc[i + 1]
             if isinstance(tensor_set[i], nn.parameter.Parameter):
                 if step_train:
-                    # 在用的mask方法
-                    # mask_noise[r_l:, :, :, r_r:] = 0.0
-                    # 与truncate一致的mask方法
                     mask_noise[r_l:, :, :, :] = 0.0
                     mask_noise[:r_l, :, :, r_r:] = 0.0
                     tensor_set[i].data = tensor_set[i].data * mask_noise

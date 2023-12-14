@@ -399,23 +399,6 @@ def create_ds_config(args):
     }
     if args.model_config["zero"]:
         model_hidden_size = args.model_config["hidden_size"]
-        # optimizer_config = {
-        #     "stage": 2,
-        #     "offload_param": {
-        #         "device": "cpu",
-        #         "pin_memory": True
-        #     },
-        #     "offload_optimizer": {
-        #         "device": "cpu",
-        #         "pin_memory": True
-        #     },
-        #     "allgather_partitions": True,
-        #     "allgather_bucket_size": 1e8,
-        #     "overlap_comm": True,
-        #     "reduce_scatter": True,
-        #     "reduce_bucket_size": 1e8,
-        #     "contiguous_gradients": True
-        # }
         optimizer_config = {
             "stage": 3,
             "offload_optimizer": {
@@ -655,7 +638,6 @@ def start_training(args, model, optimizer, lr_scheduler, start_epoch):
                 last_global_step=global_step,
                 last_global_data_samples=global_data_samples,
                 exp_start_marker=args.exp_start_marker,
-                # ckpt_id="latest_checkpoint", # None 则以step为标识保存多个checkpoint，latest_checkpoint 则会一直被最新的覆盖
             )
             dist.barrier()
     logger.info(

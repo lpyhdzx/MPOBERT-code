@@ -43,69 +43,7 @@ MODELS = {
     # "albert-mlm-sop": (AlbertForPreTraining, PretrainedAlbertConfig, AlbertTokenizer),
 }
 
-def model_from_pretrained_mpo(model, args):
-    if args.model_config["load_from_albert"]:
-        logger.info("===== Check loading weights from {} to BERT =====".format(args.model_config["load_from_albert"]))
-        albert_weights = args.model_config["load_from_albert"]
-        checkpoint_state_dict = torch.load(albert_weights)
-        module = checkpoint_state_dict['module'] if hasattr(checkpoint_state_dict, "module") else checkpoint_state_dict
-    
-        # embeddings
-        for shared_name in ["embeddings.word_embeddings", "embeddings.position_embeddings","embeddings.token_type_embeddings","encoder.embedding_hidden_mapping_in"]:
-            init_module = module.get("albert." + shared_name + ".weight")
-            target_module = eval("model.network.bert." + shared_name + ".weight")
-            target_module.data = init_module.data
-            if hasattr(target_module, "bias"):
-                target_module.bias = init_module.bias
-        if args.model_config["layernorm_embedding"]:
-            model.network.bert.embeddings.LayerNorm.weight.data = module.albert.embeddings.LayerNorm.weight.data
-            model.network.bert.embeddings.LayerNorm.bias.data = module.albert.embeddings.LayerNorm.bias.data
-        # abbres=["K","Q","V","AO","I","O"]
-        for i in range(args.model_config["num_hidden_layers"]):
-            model.network.bert.encoder.layer[i].intermediate.dense.weight.data = module.get(_albert_roberta_names["I"]+".weight").data
-            model.network.bert.encoder.layer[i].output.dense.weight.data = module.get(_albert_roberta_names["O"]+".weight").data
-            model.network.bert.encoder.layer[i].attention.self.query.weight.data = module.get(_albert_roberta_names["Q"]+".weight").data
-            model.network.bert.encoder.layer[i].attention.self.key.weight.data = module.get(_albert_roberta_names["K"]+".weight").data
-            model.network.bert.encoder.layer[i].attention.self.value.weight.data = module.get(_albert_roberta_names["V"]+".weight").data
-            model.network.bert.encoder.layer[i].attention.output.dense.weight.data = module.get(_albert_roberta_names["AO"]+".weight").data
-        # pooler
-        model.network.bert.pooler.dense_act.weight.data = module.get("albert.pooler.weight").data
-        model.network.bert.pooler.dense_act.bias.data = module.get("albert.pooler.bias").data
-        model.network.cls.predictions.bias.data = module.get("predictions.bias").data
-        model.network.cls.predictions.LayerNorm.weight.data = module.get("predictions.LayerNorm.weight").data
-        model.network.cls.predictions.LayerNorm.bias.data = module.get("predictions.LayerNorm.bias").data
-        model.network.cls.predictions.dense.weight.data = module.get("predictions.dense.weight").data
-        model.network.cls.predictions.dense.bias.data = module.get("predictions.dense.bias").data
-        model.network.cls.predictions.decoder.weight.data = module.get("predictions.decoder.weight").data
-        model.network.cls.predictions.decoder.bias.data = module.get("predictions.decoder.bias").data
 
-        del module
-    if args.model_config["mpo_layers"]:
-        if 'FFN_1' in args.model_config["mpo_layers"]:
-            if 'FFN_1' not in args.model_config["load_layer"]:
-                for i in range(args.model_config["num_hidden_layers"]):
-                    model.network.bert.encoder.layer[i].intermediate.from_pretrained_mpo()
-            for i in range(args.model_config["num_hidden_layers"]):
-                del model.network.bert.encoder.layer[i].intermediate.dense
-            
-        if 'FFN_2' in args.model_config["mpo_layers"]:
-            if 'FFN_2' not in args.model_config["load_layer"]:
-                for i in range(args.model_config["num_hidden_layers"]):
-                    model.network.bert.encoder.layer[i].output.from_pretrained_mpo()
-            for i in range(args.model_config["num_hidden_layers"]):
-                del model.network.bert.encoder.layer[i].output.dense
-
-        if 'attention' in args.model_config["mpo_layers"]:
-            if 'attention' not in args.model_config["load_layer"]:
-                for i in range(args.model_config["num_hidden_layers"]):
-                    model.network.bert.encoder.layer[i].attention.self.from_pretrained_mpo()
-                    model.network.bert.encoder.layer[i].attention.output.from_pretrained_mpo()
-            for i in range(args.model_config["num_hidden_layers"]):   
-                del model.network.bert.encoder.layer[i].attention.self.query
-                del model.network.bert.encoder.layer[i].attention.self.key
-                del model.network.bert.encoder.layer[i].attention.self.value
-                del model.network.bert.encoder.layer[i].attention.output.dense
-    return model
 def albert_from_pretrained_mpo(model, args):
     # assert args.model_config["num_hidden_groups"] == args.model_config["num_hidden_layers"]
     if args.model_config["mpo_layers"]:
@@ -173,32 +111,8 @@ class BasePretrainModel(object):
             self.network = model_cls(self.config, self.args, **model_kwargs) # bert
         else:
             self.network = model_cls(self.config, self.args) # albert
-        # self.network = model_cls.from_pretrained(model_name_or_path)
         print(f"Before sharing total Parameter Count: {self.network.num_parameters()/1000/1000}M")
-
-        # checkpoint_state_dict = torch.load("/mnt/liupeiyu/checkpoint/albert-base-v2/pytorch_model.bin", map_location=lambda storage, loc: storage)
-        # moduel = checkpoint_state_dict['module'] if hasattr(checkpoint_state_dict, "module") else checkpoint_state_dict
-        # self.network.load_state_dict(moduel, strict=False)
-        if "albert" not in model_type and args.model_config["mpo_layers"] and args.model_config["mpo_layers"].lower() != "nompo":
-            print("========== MPO Operation ==========")
-            model = model_from_pretrained_mpo(self, args)
-            if args.model_config["share_layer"]:
-                args.model_config["share_layer"] = list(map(int, args.model_config["share_layer"].split(",")))
-                if args.model_config["share_layer"]:
-                    layer_idices = {args.model_config["share_layer"][0]:list(range(*args.model_config["share_layer"]))}
-                else:
-                    layer_idices = {0:list(range(1,args.model_config["num_hidden_layers"]))}
-            else:
-                layer_idices = {}
-            logger.info("Check sharing config: {}".format(layer_idices))
-            if layer_idices:
-                names_tobe_shared = chain_module_names("bert", layer_idices=layer_idices)
-                model.network.set_names_tobe_shared(names_tobe_shared)
-                model.network.replace(root_name="")
-                del model.network.names_tobe_shared
-            else:
-                print(f"No parameter sharing")
-        elif "albert" in model_type and args.model_config["mpo_layers"] and args.model_config["mpo_layers"].lower() != "nompo" and args.model_config["num_hidden_groups"] > 1:
+        if "albert" in model_type and args.model_config["mpo_layers"] and args.model_config["mpo_layers"].lower() != "nompo" and args.model_config["num_hidden_groups"] > 1:
             print("========== ALBERT MPO sharing ==========")
             if args.model_config["load_from_albert"]:
                 logger.info("===== Check loading weights from {} to ALBERT =====".format(args.model_config["load_from_albert"]))
@@ -207,26 +121,9 @@ class BasePretrainModel(object):
                 self.network.load_state_dict(module, strict=False)
 
                 del module
-            # ------- share ALBERT weights
-            # if args.model_config["share_layer"]:
-            #     args.model_config["share_layer"] = list(map(int, args.model_config["share_layer"].split(",")))
-            #     if args.model_config["share_layer"]:
-            #         layer_idices = {args.model_config["share_layer"][0]:list(range(*args.model_config["share_layer"]))}
-            #     else:
-            #         layer_idices = {0:list(range(1,args.model_config["num_hidden_layers"]))}
-            # else:
-            #     layer_idices = {}
-            # if layer_idices:
-            #     names_tobe_shared = chain_module_names_orialbert("albert", layer_idices=layer_idices)
-            #     self.network.set_names_tobe_shared(names_tobe_shared)
-            #     self.network.replace(root_name="",verbose=False)
-            #     del self.network.names_tobe_shared
-            # else:
-            #     print(f"No parameter sharing")
-            # ------- MPO decom and share CT
+
             self = albert_from_pretrained_mpo(self, args)
             if args.model_config["share_layer"]:
-                # args.model_config["share_layer"] = list(map(int, args.model_config["share_layer"].split(",")))
                 if args.model_config["share_layer"] == '2CT':
                     layer_idices = {0:[1,2,3,4,5],6:[7,8,9,10,11]}
                     logger.info("Check sharing: {}".format(layer_idices))
@@ -242,41 +139,7 @@ class BasePretrainModel(object):
                 del self.network.names_tobe_shared
             else:
                 print(f"No parameter sharing")
-        ########### 原始的albert全做MPO分解 group=1
-        elif "albert" in model_type and args.model_config["mpo_layers"] and args.model_config["mpo_layers"].lower() != "nompo" and args.model_config["num_hidden_groups"] == 1:
-            print("========== test only mpo + ALBERT ==========")
-            checkpoint_state_dict = torch.load(args.model_config["load_from_albert"], map_location=lambda storage, loc: storage)
-            module = checkpoint_state_dict['module'] if hasattr(checkpoint_state_dict, "module") else checkpoint_state_dict
-            self.network.load_state_dict(module, strict=False)
-            self = albert_from_pretrained_mpo(self, args) # 测试MPO albert
-            del module
-        ########### albert 全共享
-        else: 
-            print("========== ALBERT ori sharing ==========")
-            checkpoint_state_dict = torch.load(args.model_config["load_from_albert"], map_location=lambda storage, loc: storage)
-            module = checkpoint_state_dict['module'] if hasattr(checkpoint_state_dict, "module") else checkpoint_state_dict
-            self.network.load_state_dict(module, strict=False)
-            del module
-            if args.model_config["share_layer"]:
-                args.model_config["share_layer"] = list(map(int, args.model_config["share_layer"].split(",")))
-                if args.model_config["share_layer"]:
-                    layer_idices = {args.model_config["share_layer"][0]:list(range(*args.model_config["share_layer"]))}
-                else:
-                    layer_idices = {0:list(range(1,args.model_config["num_hidden_layers"]))}
-            else:
-                layer_idices = {}
-            logger.info("Check sharing config: {}".format(layer_idices))
-            if layer_idices:
-                names_tobe_shared = chain_module_names_orialbert("albert", layer_idices=layer_idices)
-                self.network.set_names_tobe_shared(names_tobe_shared)
-                self.network.replace(root_name="")
-                del self.network.names_tobe_shared
-            else:
-                print(f"No parameter sharing")
-        # for k,v in self.network.named_parameters():
-        #     logger.info("{} nums: {}".format(k, v.numel()/1000/1000))
-        # logger.info(self.network)
-        # logger.info(["{}: {}\n".format(k,v.flatten()[:5]) for k,v in self.network.named_parameters()])
+        
         print(f"After sharing total Parameter Count: {self.network.num_parameters()/1000/1000}M")
     def forward(self, batch):
         # outputs = self.network(batch)
